@@ -1,0 +1,233 @@
+```{r global_options, include=FALSE}
+# Removing all env vars
+rm(list=ls())
+library(knitr)
+opts_chunk$set(fig.align = "center", fig.height = 4, fig.width = 5)
+library(tidyverse)
+theme_set(theme_bw(base_size = 12))
+library(plotROC)
+library(ggthemes)
+```
+## Project 2 
+*Meghana V Palukuri mvp549*
+
+### Instructions
+
+Please submit both this completed Rmarkdown document and its knitted HTML, converted to PDF, on Canvas **no later than 4:00 pm on April 2nd, 2019**. These two documents will be graded jointly, so they must be consistent (as in, don't change the Rmarkdown file without also updating the knitted HTML!).
+
+All results presented **must** have corresponding code. Any answers/results given without the corresponding R code that generated the result will be considered absent. All code reported in your final project document should work properly. Please bear in mind that **you will lose points** for the following:
+
++ an R-code chunk with no comments
++ results without corresponding R code
++ extraneous code which does not contribute to the question
++ printing out the entire data table
+
+For this project, you will work with a dataset was extracted from the 1974 *Motor Trend* US magazine. It contains information about fuel consumption and 10 aspects of automobile design and performance for 32 automobiles. 
+
+```{r}
+head(mtcars)
+orig_mtcars <- mtcars
+```
+
+The column contents are as follows:
+
++ **mpg**: miles per US gallon.
++ **cyl**: number of cylinders.
++ **disp**: displacement (cubic inches).
++ **hp**: gross horsepower.
++ **drat**: rear axle ratio.
++ **wt**: weight (1000 lbs).
++ **qsec**: 1/4 mile time.
++ **vs**: engine (0 = V-shaped, 1 = straight).
++ **am**: transmission (0 = automatic, 1 = manual).
++ **gear**: number of forward gears.
++ **carb**: number of carbuerators.
+
+### Problems
+
+**Problem 1: (20 points)** 
+Make a logistic regression model that predicts transmission type (`am`) from gross horsepower (`hp`) and miles per galon (`mpg`). Make another logistic regression model that also predicts transmission type from gross horsepower alone. Show the summary (using `summary`) of each model below. Make a plot with two ROC curves, and explain which model better predicts transmission type. For this analysis, use the entire dataset as training data, and do not evaluate the mode on test data.
+
+```{r warning=FALSE}
+
+# Storing am as a numeric column for use in ggplot for ROC curve
+mtcars <- mutate(mtcars,am_num = as.numeric(mtcars$am))
+# Converting am to categorical variable 
+mtcars$am <- factor(mtcars$am)
+
+# Logistic regression model with 2 predictors 
+model_hp_glm <- glm(am ~ hp + mpg, data = mtcars, family = binomial)
+# Logistic regression model with 1 predictor 
+model_hp <- glm(am ~ hp, data = mtcars, family = binomial)
+
+# Summarizing models 
+summary(model_hp_glm)
+summary(model_hp)
+
+# Creating data frame for ROC plots for each model 
+df_hp_glm <- data.frame(lin_predictor = predict(model_hp_glm,mtcars), gt = mtcars$am_num, type = "model_hp_glm")
+
+df_hp <- data.frame(lin_predictor = predict(model_hp,mtcars), gt = mtcars$am_num, type = "model_hp")
+
+# Combining the two data frames to form one data frame for plotting 
+df_all <- rbind(df_hp_glm,df_hp)
+
+# Saving ROC curve plot in variable
+df_all %>% 
+  ggplot(aes(m=lin_predictor,d=gt, color = type)) +
+  geom_roc(n.cuts=0) + 
+  scale_color_colorblind() -> p 
+
+# Showing the plot 
+print(p)
+
+# Calculating AUCs with corresponding model names printed out
+model_names <- unique(df_all$type)
+data_info <- data.frame(
+  model_names,
+  group = order(model_names)
+)
+left_join(data_info, calc_auc(p)) %>%
+  select(-group, -PANEL) %>%
+  arrange(desc(AUC))
+  
+```
+
+The model using both `hp` and `glm` performs better than the model using only `hp`, as the area under the curve is higher (0.93 vs 0.71), which is also obvious from the ROC curve plot. This is because using two significant variables (as can be seen from the p-values < 0.05 in the summary table) captures more information to predict `am` than using just one variable, which in fact beccomes insignificant when used alone ( since p-value > 0.05). 
+
+**Problem 2: (40 points)**
+We have now divided the `mtcars` dataset into a training and a test data set (`train_data` and `test_data`): 
+ 
+```{r}
+train_fraction <- 0.5 # fraction of data for training purposes
+set.seed(123) # set the seed to make the partition reproductible
+train_size <- floor(train_fraction * nrow(mtcars)) # number of observations in training set
+train_indices <- sample(1:nrow(mtcars), size = train_size)
+
+train_data <- mtcars[train_indices, ] # get training data
+test_data <- mtcars[-train_indices, ] # get test data
+```
+
+Fit a logistic regression model to predict transimission type on the training data set. Use the predictors `hp` and `mpg` to predict transimission type (`am`). Your code should be appropriately commented with high-level statements about the code's function. Using your model, predict the outcome on the test data set, and plot and discuss your results.
+
+You should have two final plots: a plot with two ROC curves, one for the training and one for the test data set, and a density plot that shows how the linear predictor  separates the two transmission types in the test data. Your discussion should, at least, cover the differences and similarities in model performance on the training vs. test data (including AUC) as well as a clear interpretation of each plot. Please limit your discussion to a maximum of 10 sentences.
+
+```{r warning=FALSE}
+
+# Logistic regression model with 2 predictors 
+ml_model_hp_glm <- glm(am ~ hp + mpg, data = train_data, family = binomial)
+
+# Creating data frame for ROC plots for each dataset 
+df_train <- data.frame(linear_predictor = predict(ml_model_hp_glm,train_data), probability = predict(ml_model_hp_glm,train_data,type = "response"), gt_num = train_data$am_num,  gt=train_data$am,type = "train_data")
+
+df_test <- data.frame(linear_predictor = predict(ml_model_hp_glm,test_data), probability = predict(ml_model_hp_glm,test_data,type = "response"), gt_num = test_data$am_num, gt=test_data$am,type = "test_data")
+
+# Combining the two data frames to form one data frame for plotting 
+df_all <- rbind(df_train,df_test)
+
+# Saving ROC curve plot in variable
+df_all %>% 
+  ggplot(aes(m=linear_predictor,d=gt_num, color = type)) +
+  geom_roc(n.cuts=0) + 
+  scale_color_colorblind() -> p 
+
+# Showing the plot 
+print(p)
+
+# Calculating AUCs with corresponding model names printed out
+model_names <- unique(df_all$type)
+data_info <- data.frame(
+  model_names,
+  group = order(model_names)
+)
+left_join(data_info, calc_auc(p)) %>%
+  select(-group, -PANEL) %>%
+  arrange(desc(AUC))
+
+# Density plot 
+df_test %>% 
+  ggplot(aes(x=linear_predictor,y = probability, color=gt)) + geom_line() + geom_point()+ scale_color_colorblind()
+  
+```
+
+The given logistic regression model performs reasonably on the test data achieving an AUC value of 0.87. The model performs better on the training data than on the test data, as can be seen from the higher AUC value (0.95) and is also clearly visible from the plot with the ROC curves. This is since the model slightly overfits the training data. The performance on both the datasets is the same for high and low thresholds of the linear predictor, while the training dataset is classified better than the test dataset at intermediate threshold values. The density plot for the test data shows that a linear predictor value between 0 and 5 can separate the two classes here using the given logistic regression model. 
+
+**Problem 3: (40 points)**
+Think of one **conceptual** question to ask about the dataset `mtcars`. You are welcome to use either the training, test, or full data set for this part. For your question, perform an exploratory statistical analysis (PCA, clustering, logistic regression, linear regression, ANOVA, etc.) with two corresponding figures. The analysis and plots *must* be multivariate (include at least three of the data columns). Discuss your findings, in particular how your analysis' results reveal (or don't reveal) an answer to your proposed question. Please limit your discussion to a maximum of 15 sentences.
+
+*To receive full credit for Part II, you will have to do the following:*
+
+  - *Come up with one clear, conceptual question about the data, as explained above.*
+  - *The analysis must be multivariate (involve more than two columns of the data set at once).*
+  - *None of your work must repeat any part of the analysis of Part 1.*
+  - *For each plot, provide a justification for why you chose to make the type of plot that you made.*
+  - *Use different primary geoms for the two different plots.*
+  - *Provide an interpretation of your results and a response to your question.*
+
+**Conceptual question:** *Which physical design aspects of cars influence performance of cars the most in terms of horsepower and mileage?*
+
+*Since we have many physical design aspects here (8 - cyl, disp, drat, wt, vs, am, gear, carb), we can do dimensionality reduction using PCA to find the variables which vary the most in the dataset. We then check that the first two PCs explain most of the variance in the data. If they do, then we make a 2D plot with points colored by gradient according to qsec and observe if the data is more separable. Then we visualize the rotation matrix to find the design aspects contributing to these PCs. If more PCs influence the outcome significantly and it is not possible to plot, we can numerically calculate which variables have major components along these PCs.*
+
+```{r warning=FALSE}
+
+# PCA on the original dataset
+orig_mtcars %>% 
+  select(-qsec,-mpg,-hp) %>%   # remove performance related columns
+  scale() %>%            # scale to 0 mean and unit variance
+  prcomp() ->            # do PCA
+  pca_res                    # store result as `pca_res`
+
+
+# Finding percentage varition explained by PCs
+perc <- 100*pca_res$sdev^2 / sum(pca_res$sdev^2)
+print(perc)
+
+```
+
+```{r}
+# Adding horsepower and mileage to PCA data
+
+# Converting numeric mpg and hp data to categorical - high/low data
+
+mpg_cat <- cut(orig_mtcars$mpg, 
+                   breaks=c(-Inf, mean(orig_mtcars$mpg), Inf), 
+                   labels=c("low","high"))
+hp_cat <- cut(orig_mtcars$hp, 
+                   breaks=c(-Inf, mean(orig_mtcars$hp), Inf), 
+                   labels=c("low","high"))
+
+pca_res_labeled <- data.frame(pca_res$x, mpg = factor(mpg_cat), hp = factor(hp_cat))
+
+# Plotting 1st 2 PCs colored and shaped by hp and mpg
+ggplot(pca_res_labeled, aes(x = PC1, y = PC2, color = hp, shape = mpg)) + 
+  geom_point() + scale_color_colorblind()
+
+
+```
+
+```{r}
+# Plotting rotation matrix 
+
+# converting rotation matrix to data frame
+rot_dat <- data.frame(
+  pca_res$rotation, 
+  var = row.names(pca_res$rotation)
+)
+
+# Arrow style
+arrow_style <- arrow(
+  length = unit(0.05, "inches"),
+  type = "closed"
+)
+
+# Plotting, using geom_segment() for arrows and geom_text() for labels
+ggplot(rot_dat) + 
+  geom_segment(aes(xend = PC1, yend = PC2), x = 0, y = 0, arrow = arrow_style) + 
+  geom_text(aes(x = PC1, y = PC2, label = var), hjust = 0, size = 3, color = "blue") + 
+  xlim(-0.75, 0.75) + 
+  ylim(-0.75, 0.75) +
+  coord_fixed() # fixing aspect ratio to 1:1
+```
+
+*This conceptual question can be answered in several ways, for instance using regression with different variables as predictors, iteratively removing variables with high p-values. Here an approach using PCA is chosen, as there are several features involved and is better than the other approach which is iterative. The analysis is multivariate, both in terms of number of features (8 - all the physical design variables) and number of outcomes of interest (2 - `mpg`, `hp`). We can see that the 1st two PCs contribute to most of the variance of the data (61.9 + 22.8 ~ 85%). The first figure is a scatter plot of PC1 vs PC2 with geom_point so that the 2 parameters - `hp` and `mpg` can be depicted well using color and shape respectively. It is clearly visible that PC1 separates high and low values of both `hp` and `mpg`. Further, we also obtain the correlation between `hp` and `mpg` - that high mileage corresponds to lower horsepower and vice-versa. Next, in order to find the features influencing PC1 the most, the next figure shows the components of the variables in the space of the 1st 2 PCs. Here, geom_segment and geom_text are used to effectively depict labeled arrows corresponding to each of the variables. From this figure, we can see that the features `wt`, `disp`, `cyl` and `drat` have a larger component along PC1. Therefore, the physical design aspects - weight, displacement, number of cylinders and rear axle ratio influence the horsepower and mileage of the 1974 cars most, thus answering the posed question satisfactorily.*
+
